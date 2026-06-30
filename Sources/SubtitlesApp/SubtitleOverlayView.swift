@@ -13,6 +13,13 @@ protocol SubtitleOverlayViewDelegate: AnyObject {
 }
 
 final class SubtitleOverlayView: NSView {
+    private enum TrackingRole: String {
+        case subtitle
+        case toolbar
+        case metadata
+    }
+
+    private static let trackingRoleKey = "SubtitleOverlayTrackingRole"
     weak var delegate: SubtitleOverlayViewDelegate?
 
     private static let placeholderText = "Drop SRT or VTT subtitle here"
@@ -44,7 +51,8 @@ final class SubtitleOverlayView: NSView {
     private var sourceLabel = "Manual"
     private var isReportingCaptions = true
     private var lastReportedCaptionText: String?
-    private var trackingAreaRef: NSTrackingArea?
+    private var trackingAreaRefs: [NSTrackingArea] = []
+    private var controlsAreVisible = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -60,25 +68,46 @@ final class SubtitleOverlayView: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let trackingAreaRef {
-            removeTrackingArea(trackingAreaRef)
+        rebuildTrackingAreas()
+    }
+
+    override func layout() {
+        super.layout()
+        rebuildTrackingAreas()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard isInteractivePoint(point) else {
+            return nil
         }
-        let trackingArea = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(trackingArea)
-        trackingAreaRef = trackingArea
+
+        if controlsAreVisible, toolbarContainerView.frame.contains(point) {
+            return super.hitTest(point)
+        }
+
+        return self
     }
 
     override func mouseEntered(with event: NSEvent) {
-        setControlsVisible(true)
+        guard let role = trackingRole(from: event) else {
+            return
+        }
+
+        switch role {
+        case .subtitle:
+            setControlsVisible(true)
+        case .toolbar, .metadata:
+            if controlsAreVisible {
+                setControlsVisible(true)
+            }
+        }
     }
 
     override func mouseExited(with event: NSEvent) {
-        setControlsVisible(false)
+        guard let point = currentMouseLocationInView(), isInteractivePoint(point) else {
+            setControlsVisible(false)
+            return
+        }
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
@@ -212,20 +241,102 @@ final class SubtitleOverlayView: NSView {
     }
 
     private func setControlsVisible(_ visible: Bool) {
+        guard visible != controlsAreVisible else {
+            return
+        }
+
+        controlsAreVisible = visible
         if visible {
             toolbarContainerView.isHidden = false
         }
+        rebuildTrackingAreas()
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.12
             toolbarContainerView.animator().alphaValue = visible ? 1 : 0
             metadataLabel.animator().alphaValue = visible ? 1 : 0
         } completionHandler: { [weak self] in
-            guard !visible else {
+            guard let self, !self.controlsAreVisible else {
                 return
             }
-            self?.toolbarContainerView.isHidden = true
+            self.toolbarContainerView.isHidden = true
+            self.rebuildTrackingAreas()
         }
+    }
+
+    private func rebuildTrackingAreas() {
+        trackingAreaRefs.forEach { removeTrackingArea($0) }
+        trackingAreaRefs.removeAll()
+
+        addTrackingArea(for: subtitleBackdropView.frame, role: .subtitle)
+
+        guard controlsAreVisible else {
+            return
+        }
+
+        addTrackingArea(for: toolbarContainerView.frame, role: .toolbar)
+        addTrackingArea(for: metadataInteractiveFrame, role: .metadata)
+    }
+
+    private func addTrackingArea(for rect: NSRect, role: TrackingRole) {
+        guard rect.width > 0, rect.height > 0 else {
+            return
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: rect,
+            options: [.mouseEnteredAndExited, .activeAlways],
+            owner: self,
+            userInfo: [Self.trackingRoleKey: role.rawValue]
+        )
+        addTrackingArea(trackingArea)
+        trackingAreaRefs.append(trackingArea)
+    }
+
+    private func trackingRole(from event: NSEvent) -> TrackingRole? {
+        guard
+            let rawValue = event.trackingArea?.userInfo?[Self.trackingRoleKey] as? String,
+            let role = TrackingRole(rawValue: rawValue)
+        else {
+            return nil
+        }
+        return role
+    }
+
+    private func currentMouseLocationInView() -> NSPoint? {
+        guard let window else {
+            return nil
+        }
+        let windowPoint = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        return convert(windowPoint, from: nil)
+    }
+
+    private func isInteractivePoint(_ point: NSPoint) -> Bool {
+        if subtitleBackdropView.frame.contains(point) {
+            return true
+        }
+
+        guard controlsAreVisible else {
+            return false
+        }
+
+        return toolbarContainerView.frame.contains(point) || metadataInteractiveFrame.contains(point)
+    }
+
+    private var metadataInteractiveFrame: NSRect {
+        let size = metadataLabel.intrinsicContentSize
+        guard size.width > 0, size.height > 0 else {
+            return .zero
+        }
+
+        let width = min(metadataLabel.frame.width, size.width + 16)
+        let height = min(metadataLabel.frame.height, size.height + 4)
+        return NSRect(
+            x: metadataLabel.frame.midX - width / 2,
+            y: metadataLabel.frame.midY - height / 2,
+            width: width,
+            height: height
+        )
     }
 
     private func startCaptionAppearanceMonitoring() {

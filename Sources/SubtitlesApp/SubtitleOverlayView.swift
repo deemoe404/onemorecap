@@ -18,6 +18,7 @@ final class SubtitleOverlayView: NSView {
     }
 
     private static let trackingRoleKey = "SubtitleOverlayTrackingRole"
+    private static let resizeEdgesKey = "SubtitleOverlayResizeEdges"
     weak var delegate: SubtitleOverlayViewDelegate?
 
     private static let placeholderText = "Drop SRT or VTT subtitle here"
@@ -84,6 +85,15 @@ final class SubtitleOverlayView: NSView {
         }
     }
 
+    override func cursorUpdate(with event: NSEvent) {
+        guard let edges = resizeEdges(from: event) else {
+            super.cursorUpdate(with: event)
+            return
+        }
+
+        setResizeCursor(for: edges)
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard isInteractivePoint(point) || resizeEdges(at: point) != nil else {
             return nil
@@ -102,6 +112,11 @@ final class SubtitleOverlayView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
+        if let edges = resizeEdges(from: event) {
+            setResizeCursor(for: edges)
+            return
+        }
+
         guard let role = trackingRole(from: event) else {
             return
         }
@@ -115,6 +130,11 @@ final class SubtitleOverlayView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        if resizeEdges(from: event) != nil {
+            NSCursor.arrow.set()
+            return
+        }
+
         guard let point = currentMouseLocationInView(), isInteractivePoint(point) else {
             delegate?.subtitleOverlayViewDidExitInteractiveArea(self)
             return
@@ -242,6 +262,7 @@ final class SubtitleOverlayView: NSView {
         if isContainerChromeVisible {
             addTrackingArea(for: containerRect(), role: .container)
         }
+        addResizeCursorTrackingAreas()
     }
 
     private func addTrackingArea(for rect: NSRect, role: TrackingRole) {
@@ -264,6 +285,23 @@ final class SubtitleOverlayView: NSView {
         trackingAreaRefs.append(trackingArea)
     }
 
+    private func addResizeCursorTrackingAreas() {
+        for (rect, edges) in SubtitlePanelGeometry.resizeCursorRects(in: containerRect()) {
+            guard rect.width > 0, rect.height > 0 else {
+                continue
+            }
+
+            let trackingArea = NSTrackingArea(
+                rect: rect,
+                options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways],
+                owner: self,
+                userInfo: [Self.resizeEdgesKey: edges.rawValue]
+            )
+            addTrackingArea(trackingArea)
+            trackingAreaRefs.append(trackingArea)
+        }
+    }
+
     private func trackingRole(from event: NSEvent) -> TrackingRole? {
         guard
             let rawValue = event.trackingArea?.userInfo?[Self.trackingRoleKey] as? String,
@@ -272,6 +310,20 @@ final class SubtitleOverlayView: NSView {
             return nil
         }
         return role
+    }
+
+    private func resizeEdges(from event: NSEvent) -> SubtitlePanelGeometry.ResizeEdges? {
+        guard
+            let rawValue = event.trackingArea?.userInfo?[Self.resizeEdgesKey] as? Int
+        else {
+            return nil
+        }
+
+        return SubtitlePanelGeometry.ResizeEdges(rawValue: rawValue)
+    }
+
+    private func setResizeCursor(for edges: SubtitlePanelGeometry.ResizeEdges) {
+        NSCursor.frameResize(position: edges.cursorPosition, directions: .all).set()
     }
 
     private func currentMouseLocationInView() -> NSPoint? {

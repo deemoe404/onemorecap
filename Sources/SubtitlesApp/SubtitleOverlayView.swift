@@ -13,6 +13,11 @@ protocol SubtitleOverlayViewDelegate: AnyObject {
 final class SubtitleOverlayView: NSView {
     weak var delegate: SubtitleOverlayViewDelegate?
 
+    private static let visibleBackgroundColor = NSColor.black.withAlphaComponent(0.72).cgColor
+    private static let hiddenBackgroundColor = NSColor.clear.cgColor
+    private static let visibleBorderColor = NSColor.white.withAlphaComponent(0.16).cgColor
+    private static let hiddenBorderColor = NSColor.clear.cgColor
+
     var subtitleText: String = "Drop SRT or VTT subtitle here" {
         didSet {
             subtitleLabel.stringValue = subtitleText
@@ -93,10 +98,10 @@ final class SubtitleOverlayView: NSView {
 
     private func setupView() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.72).cgColor
+        layer?.backgroundColor = Self.hiddenBackgroundColor
         layer?.cornerRadius = 8
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.16).cgColor
+        layer?.borderColor = Self.hiddenBorderColor
         registerForDraggedTypes([.fileURL])
 
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -110,6 +115,7 @@ final class SubtitleOverlayView: NSView {
         metadataLabel.textColor = NSColor.white.withAlphaComponent(0.74)
         metadataLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         metadataLabel.alignment = .center
+        metadataLabel.alphaValue = 0
 
         controlsStack.translatesAutoresizingMaskIntoConstraints = false
         controlsStack.orientation = .horizontal
@@ -174,8 +180,10 @@ final class SubtitleOverlayView: NSView {
     private func setControlsVisible(_ visible: Bool) {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.12
+            layer?.backgroundColor = visible ? Self.visibleBackgroundColor : Self.hiddenBackgroundColor
+            layer?.borderColor = visible ? Self.visibleBorderColor : Self.hiddenBorderColor
             controlsStack.animator().isHidden = !visible
-            metadataLabel.animator().alphaValue = visible ? 1 : 0.72
+            metadataLabel.animator().alphaValue = visible ? 1 : 0
         }
     }
 

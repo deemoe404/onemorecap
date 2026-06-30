@@ -381,10 +381,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControlle
         }
     }
 
-    func subtitlePanelDidRequestCaptionSettings(_ panelController: SubtitlePanelController) {
-        openCaptionSettings()
-    }
-
     func subtitlePanel(_ panelController: SubtitlePanelController, didRequestLoadURL url: URL) {
         loadSubtitle(from: url)
     }

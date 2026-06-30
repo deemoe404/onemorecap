@@ -7,11 +7,9 @@ protocol SubtitleToolbarViewDelegate: AnyObject {
     func subtitleToolbarViewDidExit(_ view: SubtitleToolbarView)
     func subtitleToolbarView(_ view: SubtitleToolbarView, didRequestScale factor: CGFloat)
     func subtitleToolbarView(_ view: SubtitleToolbarView, didAdjustOffsetBy delta: TimeInterval)
-    func subtitleToolbarViewDidRequestCaptionSettings(_ view: SubtitleToolbarView)
     func subtitleToolbarViewDidRequestAppleTVCalibration(_ view: SubtitleToolbarView)
     func subtitleToolbarViewDidRequestPlayPause(_ view: SubtitleToolbarView)
     func subtitleToolbarViewDidRequestReset(_ view: SubtitleToolbarView)
-    func subtitleToolbarViewDidRequestClose(_ view: SubtitleToolbarView)
 }
 
 final class SubtitleToolbarView: NSView {
@@ -91,12 +89,6 @@ final class SubtitleToolbarView: NSView {
             }
             delegate?.subtitleToolbarView(self, didAdjustOffsetBy: delta)
         }
-        model.requestCaptionSettings = { [weak self] in
-            guard let self else {
-                return
-            }
-            delegate?.subtitleToolbarViewDidRequestCaptionSettings(self)
-        }
         model.requestAppleTVCalibration = { [weak self] in
             guard let self else {
                 return
@@ -114,12 +106,6 @@ final class SubtitleToolbarView: NSView {
                 return
             }
             delegate?.subtitleToolbarViewDidRequestReset(self)
-        }
-        model.requestClose = { [weak self] in
-            guard let self else {
-                return
-            }
-            delegate?.subtitleToolbarViewDidRequestClose(self)
         }
 
         let contentView = NSHostingView(rootView: SubtitleToolbarContentView(model: model))
@@ -147,15 +133,20 @@ private final class SubtitleToolbarModel: ObservableObject {
 
     var requestScale: ((CGFloat) -> Void)?
     var adjustOffset: ((TimeInterval) -> Void)?
-    var requestCaptionSettings: (() -> Void)?
     var requestAppleTVCalibration: (() -> Void)?
     var requestPlayPause: (() -> Void)?
     var requestReset: (() -> Void)?
-    var requestClose: (() -> Void)?
 
-    var statusText: String {
-        let file = loadedFileName.map { "  \($0)" } ?? ""
-        return "\(sourceLabel)  \(formatTime(playbackTime))  Offset \(formatOffset(offset))\(file)"
+    var statusKind: SubtitleToolbarStatusKind {
+        SubtitleToolbarStatusKind(sourceLabel: sourceLabel)
+    }
+
+    var playbackTimeText: String {
+        formatTime(playbackTime)
+    }
+
+    var offsetText: String {
+        formatOffset(offset)
     }
 
     var playPauseTitle: String {
@@ -174,19 +165,64 @@ private final class SubtitleToolbarModel: ObservableObject {
     }
 }
 
+private enum SubtitleToolbarStatusKind {
+    case manual
+    case appleTVCalibrated
+    case unknown
+
+    init(sourceLabel: String) {
+        switch sourceLabel {
+        case "Manual":
+            self = .manual
+        case "TV calibrated":
+            self = .appleTVCalibrated
+        default:
+            self = .unknown
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .manual:
+            return "hand.raised.fill"
+        case .appleTVCalibrated:
+            return "appletv.fill"
+        case .unknown:
+            return "questionmark.circle.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .manual:
+            return .yellow
+        case .appleTVCalibrated:
+            return .green
+        case .unknown:
+            return .gray
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .manual:
+            return "Manual playback"
+        case .appleTVCalibrated:
+            return "Apple TV calibrated playback"
+        case .unknown:
+            return "Unknown playback source"
+        }
+    }
+}
+
 private struct SubtitleToolbarContentView: View {
     @ObservedObject var model: SubtitleToolbarModel
 
     var body: some View {
         GlassEffectContainer {
             HStack(spacing: 10) {
-                Text(model.statusText)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: 360, alignment: .leading)
+                statusView
+                    .frame(maxWidth: 420, alignment: .leading)
                     .layoutPriority(0)
 
                 Divider()
@@ -197,11 +233,9 @@ private struct SubtitleToolbarContentView: View {
                     toolbarButton("W+") { model.requestScale?(1.1) }
                     toolbarButton("-0.5s") { model.adjustOffset?(-0.5) }
                     toolbarButton("+0.5s") { model.adjustOffset?(0.5) }
-                    toolbarButton("Captions") { model.requestCaptionSettings?() }
                     toolbarButton("Calibrate TV") { model.requestAppleTVCalibration?() }
                     toolbarButton(model.playPauseTitle) { model.requestPlayPause?() }
                     toolbarButton("Reset") { model.requestReset?() }
-                    toolbarButton("Close") { model.requestClose?() }
                 }
                 .layoutPriority(1)
             }
@@ -210,6 +244,36 @@ private struct SubtitleToolbarContentView: View {
             .glassEffect(.regular.interactive(), in: Capsule())
         }
         .fixedSize(horizontal: true, vertical: true)
+    }
+
+    private var statusView: some View {
+        HStack(spacing: 6) {
+            Image(systemName: model.statusKind.symbolName)
+                .font(.system(size: 13, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(model.statusKind.tint)
+                .accessibilityLabel(Text(model.statusKind.accessibilityLabel))
+                .help(model.statusKind.accessibilityLabel)
+
+            Text(model.playbackTimeText)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.primary)
+
+            Text(model.offsetText)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+
+            if let fileName = model.loadedFileName {
+                Text(fileName)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: 220, alignment: .leading)
+            }
+        }
     }
 
     private func toolbarButton(_ title: String, action: @escaping () -> Void) -> some View {

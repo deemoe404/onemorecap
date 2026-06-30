@@ -138,11 +138,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControlle
             UTType(filenameExtension: "webvtt")
         ].compactMap { $0 }
 
-        openPanel.begin { [weak self] response in
+        let shouldRestorePanel = panelController.isVisible
+        if shouldRestorePanel {
+            panelController.hide()
+            updateMenuState()
+        }
+
+        // Status-item apps are not always active after a menu action, and the overlay
+        // window intentionally sits above normal app panels.
+        DispatchQueue.main.async { [weak self, openPanel] in
+            guard let self else {
+                return
+            }
+
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            let response = openPanel.runModal()
+
+            if shouldRestorePanel && !self.panelController.isVisible {
+                self.panelController.show()
+            }
+            self.updateMenuState()
+
             guard response == .OK, let url = openPanel.url else {
                 return
             }
-            self?.loadSubtitle(from: url)
+            self.loadSubtitle(from: url)
         }
     }
 

@@ -31,6 +31,7 @@ final class SubtitleOverlayView: NSView {
         }
     }
 
+    private let subtitleBackdropView = NSView()
     private let subtitleLabel = NSTextField(labelWithString: placeholderText)
     private let metadataLabel = NSTextField(labelWithString: "00:00.0  Offset +0.0s")
     private let controlsStack = NSStackView()
@@ -109,16 +110,22 @@ final class SubtitleOverlayView: NSView {
 
     private func setupView() {
         wantsLayer = true
-        layer?.backgroundColor = captionAppearance.windowColor.cgColor
-        layer?.cornerRadius = captionAppearance.windowCornerRadius
+        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.cornerRadius = 8
         layer?.borderWidth = 1
         layer?.borderColor = Self.hiddenBorderColor
         registerForDraggedTypes([.fileURL])
+
+        subtitleBackdropView.translatesAutoresizingMaskIntoConstraints = false
+        subtitleBackdropView.wantsLayer = true
+        subtitleBackdropView.layer?.backgroundColor = captionAppearance.windowColor.cgColor
+        subtitleBackdropView.layer?.cornerRadius = captionAppearance.windowCornerRadius
 
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         subtitleLabel.alignment = .center
         subtitleLabel.maximumNumberOfLines = 3
         subtitleLabel.lineBreakMode = .byWordWrapping
+        subtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         metadataLabel.translatesAutoresizingMaskIntoConstraints = false
         metadataLabel.textColor = NSColor.white.withAlphaComponent(0.74)
@@ -151,18 +158,25 @@ final class SubtitleOverlayView: NSView {
         styleButton(playPauseButton)
         controls.forEach { controlsStack.addArrangedSubview($0) }
 
-        addSubview(subtitleLabel)
+        addSubview(subtitleBackdropView)
+        subtitleBackdropView.addSubview(subtitleLabel)
         addSubview(metadataLabel)
         addSubview(controlsStack)
 
         NSLayoutConstraint.activate([
-            subtitleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
-            subtitleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
-            subtitleLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -6),
+            subtitleBackdropView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            subtitleBackdropView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -6),
+            subtitleBackdropView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 24),
+            subtitleBackdropView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
+
+            subtitleLabel.leadingAnchor.constraint(equalTo: subtitleBackdropView.leadingAnchor, constant: 16),
+            subtitleLabel.trailingAnchor.constraint(equalTo: subtitleBackdropView.trailingAnchor, constant: -16),
+            subtitleLabel.topAnchor.constraint(equalTo: subtitleBackdropView.topAnchor, constant: 8),
+            subtitleLabel.bottomAnchor.constraint(equalTo: subtitleBackdropView.bottomAnchor, constant: -8),
 
             metadataLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             metadataLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-            metadataLabel.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 8),
+            metadataLabel.topAnchor.constraint(equalTo: subtitleBackdropView.bottomAnchor, constant: 8),
 
             controlsStack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             controlsStack.centerXAnchor.constraint(equalTo: centerXAnchor),
@@ -204,8 +218,8 @@ final class SubtitleOverlayView: NSView {
 
     private func applyCaptionAppearance(_ appearance: SystemCaptionAppearance) {
         captionAppearance = appearance
-        layer?.backgroundColor = appearance.windowColor.cgColor
-        layer?.cornerRadius = appearance.windowCornerRadius
+        subtitleBackdropView.layer?.backgroundColor = appearance.windowColor.cgColor
+        subtitleBackdropView.layer?.cornerRadius = appearance.windowCornerRadius
         updateSubtitleText()
     }
 

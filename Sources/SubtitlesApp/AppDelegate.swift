@@ -5,6 +5,13 @@ import SubtitlesAppSupport
 import UniformTypeIdentifiers
 
 final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControllerDelegate {
+    private static let captionSettingsURLs = [
+        "x-apple.systempreferences:com.apple.Accessibility-Settings.extension?AX_FEATURE_CAPTIONS",
+        "x-apple.systempreferences:com.apple.preference.universalaccess?Captioning",
+        "x-apple.systempreferences:com.apple.Accessibility-Settings.extension",
+        "x-apple.systempreferences:com.apple.preference.universalaccess"
+    ].compactMap(URL.init(string:))
+
     private let clock = SubtitlePlayerClock()
     private let panelController = SubtitlePanelController()
     private let appleTVClient = AppleTVPlaybackClient()
@@ -87,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControlle
         menu.addItem(.separator())
 
         menu.addItem(NSMenuItem(title: "Request Accessibility Permission", action: #selector(requestAccessibilityPermission), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Open Caption Settings...", action: #selector(openCaptionSettingsFromMenu), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Subtitles", action: #selector(quit), keyEquivalent: "q"))
 
@@ -202,6 +210,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControlle
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
+    @objc private func openCaptionSettingsFromMenu() {
+        openCaptionSettings()
+    }
+
     @objc private func quit() {
         NSApplication.shared.terminate(nil)
     }
@@ -285,6 +297,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControlle
         refreshSubtitleText()
     }
 
+    private func openCaptionSettings() {
+        for url in Self.captionSettingsURLs where NSWorkspace.shared.open(url) {
+            return
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Could not open Caption Settings"
+        alert.informativeText = "Open System Settings > Accessibility > Subtitles and Captioning manually."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     private func refreshSubtitleText() {
         let renderState = syncCoordinator.renderState(offset: clock.offset)
         lastRenderState = renderState
@@ -354,6 +379,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControlle
             alert.addButton(withTitle: "OK")
             alert.runModal()
         }
+    }
+
+    func subtitlePanelDidRequestCaptionSettings(_ panelController: SubtitlePanelController) {
+        openCaptionSettings()
     }
 
     func subtitlePanel(_ panelController: SubtitlePanelController, didRequestLoadURL url: URL) {

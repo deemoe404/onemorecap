@@ -6,6 +6,7 @@ protocol SubtitleOverlayViewDelegate: AnyObject {
     func subtitleOverlayViewDidRequestReset(_ view: SubtitleOverlayView)
     func subtitleOverlayView(_ view: SubtitleOverlayView, didAdjustOffsetBy delta: TimeInterval)
     func subtitleOverlayViewDidRequestAppleTVCalibration(_ view: SubtitleOverlayView)
+    func subtitleOverlayViewDidRequestCaptionSettings(_ view: SubtitleOverlayView)
     func subtitleOverlayView(_ view: SubtitleOverlayView, didRequestLoadURL url: URL)
     func subtitleOverlayViewDidRequestClose(_ view: SubtitleOverlayView)
     func subtitleOverlayView(_ view: SubtitleOverlayView, didRequestScale factor: CGFloat)
@@ -138,6 +139,7 @@ final class SubtitleOverlayView: NSView {
             makeButton("W+", action: #selector(increaseWindowSize)),
             makeButton("-0.5s", action: #selector(decreaseOffset)),
             makeButton("+0.5s", action: #selector(increaseOffset)),
+            makeButton("Captions", action: #selector(openCaptionSettings)),
             makeButton("Calibrate TV", action: #selector(calibrateAppleTV)),
             playPauseButton,
             makeButton("Reset", action: #selector(resetPlayback)),
@@ -276,6 +278,10 @@ final class SubtitleOverlayView: NSView {
 
     @objc private func calibrateAppleTV() {
         delegate?.subtitleOverlayViewDidRequestAppleTVCalibration(self)
+    }
+
+    @objc private func openCaptionSettings() {
+        delegate?.subtitleOverlayViewDidRequestCaptionSettings(self)
     }
 
     @objc private func playPause() {

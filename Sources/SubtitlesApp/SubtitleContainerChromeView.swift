@@ -1,27 +1,21 @@
 @preconcurrency import Cocoa
 import SwiftUI
 
-enum SubtitleResizeRailEdge {
+enum SubtitleContainerResizeEdge {
     case left
     case right
 }
 
-protocol SubtitleResizeRailViewDelegate: AnyObject {
-    func subtitleResizeRailViewDidEnter(_ view: SubtitleResizeRailView)
-    func subtitleResizeRailViewDidExit(_ view: SubtitleResizeRailView)
-    func subtitleResizeRailViewDidBeginDragging(_ view: SubtitleResizeRailView)
-    func subtitleResizeRailView(_ view: SubtitleResizeRailView, didDrag edge: SubtitleResizeRailEdge, by delta: CGFloat)
-    func subtitleResizeRailViewDidEndDragging(_ view: SubtitleResizeRailView)
+protocol SubtitleContainerChromeViewDelegate: AnyObject {
+    func subtitleContainerChromeViewDidBeginDragging(_ view: SubtitleContainerChromeView)
+    func subtitleContainerChromeView(_ view: SubtitleContainerChromeView, didDrag edge: SubtitleContainerResizeEdge, by delta: CGFloat)
+    func subtitleContainerChromeViewDidEndDragging(_ view: SubtitleContainerChromeView)
 }
 
-final class SubtitleResizeRailView: NSView {
-    weak var delegate: SubtitleResizeRailViewDelegate?
+final class SubtitleContainerChromeView: NSView {
+    weak var delegate: SubtitleContainerChromeViewDelegate?
 
-    private var trackingAreaRef: NSTrackingArea?
-
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: 360, height: 34)
-    }
+    private static let handleHitWidth: CGFloat = 56
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -33,53 +27,36 @@ final class SubtitleResizeRailView: NSView {
         setupView()
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingAreaRef {
-            removeTrackingArea(trackingAreaRef)
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard resizeEdge(for: point) != nil else {
+            return nil
         }
-
-        let trackingArea = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(trackingArea)
-        trackingAreaRef = trackingArea
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        delegate?.subtitleResizeRailViewDidEnter(self)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        delegate?.subtitleResizeRailViewDidExit(self)
+        return super.hitTest(point) ?? self
     }
 
     private func setupView() {
-        translatesAutoresizingMaskIntoConstraints = true
-        autoresizingMask = [.width, .height]
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
 
         let contentView = NSHostingView(
-            rootView: SubtitleResizeRailContentView(
+            rootView: SubtitleContainerChromeContentView(
                 beginDragging: { [weak self] in
                     guard let self else {
                         return
                     }
-                    delegate?.subtitleResizeRailViewDidBeginDragging(self)
+                    delegate?.subtitleContainerChromeViewDidBeginDragging(self)
                 },
                 drag: { [weak self] edge, delta in
                     guard let self else {
                         return
                     }
-                    delegate?.subtitleResizeRailView(self, didDrag: edge, by: delta)
+                    delegate?.subtitleContainerChromeView(self, didDrag: edge, by: delta)
                 },
                 endDragging: { [weak self] in
                     guard let self else {
                         return
                     }
-                    delegate?.subtitleResizeRailViewDidEndDragging(self)
+                    delegate?.subtitleContainerChromeViewDidEndDragging(self)
                 }
             )
         )
@@ -93,16 +70,32 @@ final class SubtitleResizeRailView: NSView {
             contentView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
     }
+
+    private func resizeEdge(for point: NSPoint) -> SubtitleContainerResizeEdge? {
+        guard bounds.contains(point) else {
+            return nil
+        }
+
+        if point.x <= Self.handleHitWidth {
+            return .left
+        }
+
+        if point.x >= bounds.maxX - Self.handleHitWidth {
+            return .right
+        }
+
+        return nil
+    }
 }
 
-private struct SubtitleResizeRailContentView: View {
+private struct SubtitleContainerChromeContentView: View {
     let beginDragging: () -> Void
-    let drag: (SubtitleResizeRailEdge, CGFloat) -> Void
+    let drag: (SubtitleContainerResizeEdge, CGFloat) -> Void
     let endDragging: () -> Void
 
     var body: some View {
         GlassEffectContainer {
-            HStack(spacing: 8) {
+            HStack {
                 ResizeHandle(
                     edge: .left,
                     beginDragging: beginDragging,
@@ -110,10 +103,7 @@ private struct SubtitleResizeRailContentView: View {
                     endDragging: endDragging
                 )
 
-                Capsule()
-                    .fill(Color.secondary.opacity(0.35))
-                    .frame(height: 4)
-                    .frame(maxWidth: .infinity)
+                Spacer(minLength: 24)
 
                 ResizeHandle(
                     edge: .right,
@@ -122,20 +112,18 @@ private struct SubtitleResizeRailContentView: View {
                     endDragging: endDragging
                 )
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 7)
-            .glassEffect(.regular.interactive(), in: Capsule())
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
-        .frame(minWidth: 220, maxWidth: .infinity)
-        .fixedSize(horizontal: false, vertical: true)
         .environment(\.controlActiveState, .active)
     }
 }
 
 private struct ResizeHandle: View {
-    let edge: SubtitleResizeRailEdge
+    let edge: SubtitleContainerResizeEdge
     let beginDragging: () -> Void
-    let drag: (SubtitleResizeRailEdge, CGFloat) -> Void
+    let drag: (SubtitleContainerResizeEdge, CGFloat) -> Void
     let endDragging: () -> Void
 
     @State private var lastTranslation: CGFloat = 0
@@ -143,9 +131,9 @@ private struct ResizeHandle: View {
 
     var body: some View {
         Image(systemName: "arrow.left.and.right")
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.secondary)
-            .frame(width: 30, height: 20)
+            .frame(width: 34, height: 24)
             .contentShape(Rectangle())
             .help(edge == .left ? "Drag to resize from the left" : "Drag to resize from the right")
             .accessibilityLabel(Text(edge == .left ? "Resize subtitle width from the left" : "Resize subtitle width from the right"))

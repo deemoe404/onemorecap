@@ -6,11 +6,15 @@ protocol SubtitleOverlayViewDelegate: AnyObject {
     func subtitleOverlayViewDidExitInteractiveArea(_ view: SubtitleOverlayView)
     func subtitleOverlayViewDidLayout(_ view: SubtitleOverlayView)
     func subtitleOverlayView(_ view: SubtitleOverlayView, didRequestLoadURL url: URL)
+    func subtitleOverlayViewDidBeginResizingContainer(_ view: SubtitleOverlayView)
+    func subtitleOverlayView(_ view: SubtitleOverlayView, didResizeContainer edge: SubtitleContainerResizeEdge, by delta: CGFloat)
+    func subtitleOverlayViewDidEndResizingContainer(_ view: SubtitleOverlayView)
 }
 
-final class SubtitleOverlayView: NSView {
+final class SubtitleOverlayView: NSView, SubtitleContainerChromeViewDelegate {
     private enum TrackingRole: String {
         case subtitle
+        case containerChrome
     }
 
     private static let trackingRoleKey = "SubtitleOverlayTrackingRole"
@@ -26,10 +30,13 @@ final class SubtitleOverlayView: NSView {
 
     private let subtitleBackdropView = NSView()
     private let subtitleLabel = NSTextField(labelWithString: placeholderText)
+    private let subtitleContainerChromeView = SubtitleContainerChromeView()
 
     private var captionAppearance = SystemCaptionAppearance.current()
     private var captionAppearanceMonitor: SystemCaptionAppearanceMonitor?
     private var isReportingCaptions = true
+    private var isContainerChromeVisible = false
+    private var isContainerResizeActive = false
     private var lastReportedCaptionText: String?
     private var trackingAreaRefs: [NSTrackingArea] = []
 
@@ -57,11 +64,14 @@ final class SubtitleOverlayView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard isInteractivePoint(point) else {
-            return nil
+        if isContainerChromeInteractive, subtitleContainerChromeView.frame.contains(point) {
+            let chromePoint = convert(point, to: subtitleContainerChromeView)
+            if let chromeHit = subtitleContainerChromeView.hitTest(chromePoint) {
+                return chromeHit
+            }
         }
 
-        return self
+        return isInteractivePoint(point) ? self : nil
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -71,6 +81,8 @@ final class SubtitleOverlayView: NSView {
 
         switch role {
         case .subtitle:
+            delegate?.subtitleOverlayViewDidEnterInteractiveArea(self)
+        case .containerChrome:
             delegate?.subtitleOverlayViewDidEnterInteractiveArea(self)
         }
     }
@@ -99,12 +111,59 @@ final class SubtitleOverlayView: NSView {
         reportDisplayedCaptions(force: true)
     }
 
+    func setContainerChromeVisible(_ visible: Bool, animated: Bool) {
+        guard visible != isContainerChromeVisible else {
+            rebuildTrackingAreas()
+            return
+        }
+
+        isContainerChromeVisible = visible
+
+        if visible {
+            subtitleContainerChromeView.isHidden = false
+            subtitleContainerChromeView.alphaValue = animated ? 0 : 1
+        }
+
+        rebuildTrackingAreas()
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = animated ? 0.12 : 0
+            subtitleContainerChromeView.animator().alphaValue = visible ? 1 : 0
+        } completionHandler: { [weak self] in
+            guard let self else {
+                return
+            }
+            self.subtitleContainerChromeView.isHidden = !self.isContainerChromeVisible
+            self.rebuildTrackingAreas()
+        }
+    }
+
+    func subtitleContainerChromeViewDidBeginDragging(_ view: SubtitleContainerChromeView) {
+        isContainerResizeActive = true
+        delegate?.subtitleOverlayViewDidBeginResizingContainer(self)
+    }
+
+    func subtitleContainerChromeView(_ view: SubtitleContainerChromeView, didDrag edge: SubtitleContainerResizeEdge, by delta: CGFloat) {
+        delegate?.subtitleOverlayView(self, didResizeContainer: edge, by: delta)
+    }
+
+    func subtitleContainerChromeViewDidEndDragging(_ view: SubtitleContainerChromeView) {
+        isContainerResizeActive = false
+        delegate?.subtitleOverlayViewDidEndResizingContainer(self)
+        rebuildTrackingAreas()
+    }
+
     private func setupView() {
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
         layer?.cornerRadius = 8
         layer?.borderWidth = 0
         registerForDraggedTypes([.fileURL])
+
+        subtitleContainerChromeView.translatesAutoresizingMaskIntoConstraints = false
+        subtitleContainerChromeView.alphaValue = 0
+        subtitleContainerChromeView.isHidden = true
+        subtitleContainerChromeView.delegate = self
 
         subtitleBackdropView.translatesAutoresizingMaskIntoConstraints = false
         subtitleBackdropView.wantsLayer = true
@@ -117,10 +176,17 @@ final class SubtitleOverlayView: NSView {
         subtitleLabel.lineBreakMode = .byWordWrapping
         subtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        addSubview(subtitleContainerChromeView)
         addSubview(subtitleBackdropView)
         subtitleBackdropView.addSubview(subtitleLabel)
 
         NSLayoutConstraint.activate([
+            subtitleContainerChromeView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            subtitleContainerChromeView.centerYAnchor.constraint(equalTo: subtitleBackdropView.centerYAnchor),
+            subtitleContainerChromeView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
+            subtitleContainerChromeView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
+            subtitleContainerChromeView.heightAnchor.constraint(equalTo: subtitleBackdropView.heightAnchor, constant: 24),
+
             subtitleBackdropView.centerXAnchor.constraint(equalTo: centerXAnchor),
             subtitleBackdropView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -6),
             subtitleBackdropView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 24),
@@ -140,6 +206,9 @@ final class SubtitleOverlayView: NSView {
         trackingAreaRefs.removeAll()
 
         addTrackingArea(for: subtitleBackdropView.frame, role: .subtitle)
+        if isContainerChromeInteractive {
+            addTrackingArea(for: subtitleContainerChromeView.frame, role: .containerChrome)
+        }
     }
 
     private func addTrackingArea(for rect: NSRect, role: TrackingRole) {
@@ -180,7 +249,15 @@ final class SubtitleOverlayView: NSView {
             return true
         }
 
+        if isContainerChromeInteractive, subtitleContainerChromeView.frame.contains(point) {
+            return true
+        }
+
         return false
+    }
+
+    private var isContainerChromeInteractive: Bool {
+        isContainerChromeVisible || isContainerResizeActive
     }
 
     func containsScreenPointInInteractiveArea(_ screenPoint: NSPoint) -> Bool {

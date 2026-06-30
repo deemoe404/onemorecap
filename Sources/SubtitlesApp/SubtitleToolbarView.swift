@@ -5,7 +5,6 @@ import SwiftUI
 protocol SubtitleToolbarViewDelegate: AnyObject {
     func subtitleToolbarViewDidEnter(_ view: SubtitleToolbarView)
     func subtitleToolbarViewDidExit(_ view: SubtitleToolbarView)
-    func subtitleToolbarView(_ view: SubtitleToolbarView, didRequestScale factor: CGFloat)
     func subtitleToolbarView(_ view: SubtitleToolbarView, didAdjustOffsetBy delta: TimeInterval)
     func subtitleToolbarViewDidRequestAppleTVCalibration(_ view: SubtitleToolbarView)
     func subtitleToolbarViewDidRequestPlayPause(_ view: SubtitleToolbarView)
@@ -77,12 +76,6 @@ final class SubtitleToolbarView: NSView {
         translatesAutoresizingMaskIntoConstraints = true
         autoresizingMask = [.width, .height]
 
-        model.requestScale = { [weak self] factor in
-            guard let self else {
-                return
-            }
-            delegate?.subtitleToolbarView(self, didRequestScale: factor)
-        }
         model.adjustOffset = { [weak self] delta in
             guard let self else {
                 return
@@ -131,7 +124,6 @@ private final class SubtitleToolbarModel: ObservableObject {
     @Published var sourceLabel = "Manual"
     @Published var loadedFileName: String?
 
-    var requestScale: ((CGFloat) -> Void)?
     var adjustOffset: ((TimeInterval) -> Void)?
     var requestAppleTVCalibration: (() -> Void)?
     var requestPlayPause: (() -> Void)?
@@ -184,7 +176,7 @@ private enum SubtitleToolbarStatusKind {
     var symbolName: String {
         switch self {
         case .manual:
-            return "hand.raised.fill"
+            return "hand.tap.fill"
         case .appleTVCalibrated:
             return "appletv.fill"
         case .unknown:
@@ -226,21 +218,17 @@ private struct SubtitleToolbarContentView: View {
                     .layoutPriority(0)
 
                 Divider()
-                    .frame(height: 18)
+                    .frame(height: 24)
 
                 HStack(spacing: 6) {
-                    toolbarButton("W-") { model.requestScale?(0.9) }
-                    toolbarButton("W+") { model.requestScale?(1.1) }
-                    toolbarButton("-0.5s") { model.adjustOffset?(-0.5) }
-                    toolbarButton("+0.5s") { model.adjustOffset?(0.5) }
                     toolbarButton("Calibrate TV") { model.requestAppleTVCalibration?() }
                     toolbarButton(model.playPauseTitle) { model.requestPlayPause?() }
                     toolbarButton("Reset") { model.requestReset?() }
                 }
                 .layoutPriority(1)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .glassEffect(.regular.interactive(), in: Capsule())
         }
         .fixedSize(horizontal: true, vertical: true)
@@ -250,21 +238,36 @@ private struct SubtitleToolbarContentView: View {
     private var statusView: some View {
         HStack(spacing: 6) {
             Image(systemName: model.statusKind.symbolName)
-                .font(.system(size: 13, weight: .semibold))
-                .symbolRenderingMode(.hierarchical)
+                .font(.system(size: 15, weight: .semibold))
+                .symbolRenderingMode(.monochrome)
                 .foregroundStyle(model.statusKind.tint)
                 .accessibilityLabel(Text(model.statusKind.accessibilityLabel))
                 .help(model.statusKind.accessibilityLabel)
 
             Text(model.playbackTimeText)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.primary)
 
             Text(model.offsetText)
-                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .font(.system(size: 13, weight: .medium, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
+
+            VStack(spacing: 2) {
+                stepperButton(
+                    systemName: "chevron.up",
+                    help: "Increase subtitle offset by 0.5 seconds"
+                ) {
+                    model.adjustOffset?(0.5)
+                }
+                stepperButton(
+                    systemName: "chevron.down",
+                    help: "Decrease subtitle offset by 0.5 seconds"
+                ) {
+                    model.adjustOffset?(-0.5)
+                }
+            }
 
             if let fileName = model.loadedFileName {
                 Text(fileName)
@@ -281,5 +284,17 @@ private struct SubtitleToolbarContentView: View {
         Button(title, action: action)
             .buttonStyle(.glass)
             .controlSize(.small)
+    }
+
+    private func stepperButton(systemName: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 8, weight: .bold))
+                .frame(width: 18, height: 8)
+        }
+        .buttonStyle(.glass)
+        .controlSize(.mini)
+        .help(help)
+        .accessibilityLabel(Text(help))
     }
 }

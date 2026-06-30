@@ -69,7 +69,7 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = false
-        panel.level = .screenSaver
+        panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
@@ -79,7 +79,7 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
         toolbarPanel.backgroundColor = .clear
         toolbarPanel.hasShadow = false
         toolbarPanel.hidesOnDeactivate = false
-        toolbarPanel.level = .screenSaver
+        toolbarPanel.level = .floating
         toolbarPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         toolbarPanel.titleVisibility = .hidden
         toolbarPanel.titlebarAppearsTransparent = true
@@ -232,8 +232,6 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
         pendingChromeHide = nil
         interactionState = .moving
         overlayView.setInteractionTrackingSuspended(true)
-        setToolbarVisible(false, animated: false)
-        setContainerChromeVisible(false, animated: false)
 
         panel.performDrag(with: event)
         applyPreferredPanelHeightAfterTransientInteraction()
@@ -245,6 +243,7 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
         } else {
             interactionState = .idle
         }
+        scheduleChromeHideIfNeeded()
     }
 
     private func performContainerResize(
@@ -256,7 +255,6 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
         interactionState = .resizing
         overlayView.setInteractionTrackingSuspended(true)
         setContainerChromeVisible(true, animated: false)
-        setToolbarVisible(false, animated: false)
         resizeCursorCoordinator.setForcedResizeEdges(edges)
 
         let initialFrame = panel.frame

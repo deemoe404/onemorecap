@@ -530,7 +530,7 @@ private struct SubtitleResizeHandleCue: View {
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 22, weight: .semibold))
                 .symbolRenderingMode(.monochrome)
-                .foregroundStyle(Color(nsColor: .systemBlue).opacity(0.9))
+                .foregroundStyle(Color.black.opacity(0.68))
                 .rotationEffect(.degrees(90))
                 .frame(width: 24, height: 42)
                 .padding(side.paddingEdge, 3)

@@ -4,12 +4,17 @@ import SubtitleCore
 import SubtitlesAppSupport
 import UniformTypeIdentifiers
 
-final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControllerDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SubtitlePanelControllerDelegate {
     private static let captionSettingsURLs = [
         "x-apple.systempreferences:com.apple.Accessibility-Settings.extension?AX_FEATURE_CAPTIONS",
         "x-apple.systempreferences:com.apple.preference.universalaccess?Captioning",
         "x-apple.systempreferences:com.apple.Accessibility-Settings.extension",
         "x-apple.systempreferences:com.apple.preference.universalaccess"
+    ].compactMap(URL.init(string:))
+    private static let accessibilityPermissionSettingsURLs = [
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        "x-apple.systempreferences:com.apple.PrivacySecurity.extension?Privacy_Accessibility",
+        "x-apple.systempreferences:com.apple.preference.security"
     ].compactMap(URL.init(string:))
     private static let minimumRenderDelay: TimeInterval = 0.01
     private static let boundaryEpsilon: TimeInterval = 0.001
@@ -22,11 +27,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControlle
         let sourceLabel: String
     }
 
+    private struct AccessibilityPermissionMenuState: Equatable {
+        let title: String
+        let isEnabled: Bool
+    }
+
     private struct MenuDisplayState: Equatable {
         let showHideTitle: String
         let playPauseTitle: String
         let offsetTitle: String
         let loadedFileTitle: String
+        let accessibilityPermission: AccessibilityPermissionMenuState
     }
 
     private let clock = SubtitlePlayerClock()
@@ -38,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControlle
     private var playPauseMenuItem: NSMenuItem?
     private var offsetMenuItem: NSMenuItem?
     private var loadedFileMenuItem: NSMenuItem?
+    private var accessibilityPermissionMenuItem: NSMenuItem?
 
     private var document: SubtitleDocument?
     private var timeline: SubtitleTimeline?
@@ -79,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControlle
         item.button?.toolTip = "Subtitles"
 
         let menu = NSMenu()
+        menu.delegate = self
         loadedFileMenuItem = NSMenuItem(title: "No Subtitle Loaded", action: nil, keyEquivalent: "")
         loadedFileMenuItem?.isEnabled = false
         menu.addItem(loadedFileMenuItem!)
@@ -105,13 +118,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControlle
         menu.addItem(NSMenuItem(title: "Reset Offset", action: #selector(resetOffsetFromMenu), keyEquivalent: ""))
         menu.addItem(.separator())
 
-        menu.addItem(NSMenuItem(title: "Request Accessibility Permission", action: #selector(requestAccessibilityPermission), keyEquivalent: ""))
+        let accessibilityPermission = NSMenuItem(
+            title: "Request Accessibility Access",
+            action: #selector(requestAccessibilityPermission),
+            keyEquivalent: ""
+        )
+        accessibilityPermissionMenuItem = accessibilityPermission
+        menu.addItem(accessibilityPermission)
         menu.addItem(NSMenuItem(title: "Open Caption Settings...", action: #selector(openCaptionSettingsFromMenu), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Subtitles", action: #selector(quit), keyEquivalent: ""))
 
         item.menu = menu
         statusItem = item
+        updateMenuState()
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
         updateMenuState()
     }
 
@@ -269,8 +292,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControlle
     }
 
     @objc private func requestAccessibilityPermission() {
+        let wasTrusted = AXIsProcessTrusted()
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
+        if wasTrusted || !AXIsProcessTrusted() {
+            openAccessibilityPermissionSettings()
+        }
+        updateMenuState()
     }
 
     @objc private func openCaptionSettingsFromMenu() {
@@ -351,6 +379,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControlle
         alert.runModal()
     }
 
+    private func openAccessibilityPermissionSettings() {
+        for url in Self.accessibilityPermissionSettingsURLs where NSWorkspace.shared.open(url) {
+            return
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Could not open Accessibility permissions"
+        alert.informativeText = "Open System Settings > Privacy & Security > Accessibility, then remove and re-enable Subtitles manually."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     private func refreshSubtitleText() {
         let renderState = syncCoordinator.renderState(offset: clock.offset)
         lastRenderState = renderState
@@ -409,7 +450,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControlle
             showHideTitle: panelController.isVisible ? "Hide Subtitle Window" : "Show Subtitle Window",
             playPauseTitle: lastRenderState.isPlaying ? "Pause" : "Play",
             offsetTitle: String(format: "Offset: %.1fs", clock.offset),
-            loadedFileTitle: document?.sourceURL?.lastPathComponent ?? "No Subtitle Loaded"
+            loadedFileTitle: document?.sourceURL?.lastPathComponent ?? "No Subtitle Loaded",
+            accessibilityPermission: accessibilityPermissionMenuState()
         )
         guard state != lastMenuDisplayState else {
             return
@@ -419,6 +461,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SubtitlePanelControlle
         playPauseMenuItem?.title = state.playPauseTitle
         offsetMenuItem?.title = state.offsetTitle
         loadedFileMenuItem?.title = state.loadedFileTitle
+        accessibilityPermissionMenuItem?.title = state.accessibilityPermission.title
+        accessibilityPermissionMenuItem?.isEnabled = state.accessibilityPermission.isEnabled
+    }
+
+    private func accessibilityPermissionMenuState() -> AccessibilityPermissionMenuState {
+        if AXIsProcessTrusted() {
+            return AccessibilityPermissionMenuState(
+                title: "Refresh Accessibility Access",
+                isEnabled: true
+            )
+        }
+
+        return AccessibilityPermissionMenuState(
+            title: "Request Accessibility Access",
+            isEnabled: true
+        )
     }
 
     func subtitlePanel(_ panelController: SubtitlePanelController, didAdjustOffsetBy delta: TimeInterval) {

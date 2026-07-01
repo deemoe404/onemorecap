@@ -232,7 +232,7 @@ final class SubtitlePanelGeometryTests: XCTestCase {
         XCTAssertEqual(adjusted.width, initial.width)
     }
 
-    func testFinishingTransientResizeIgnoresPreferredHeightChanges() {
+    func testFinishingTransientResizeAppliesPreferredHeightPreservingBottom() {
         let initial = CGRect(x: 200, y: 100, width: 800, height: 180)
         let resized = SubtitlePanelGeometry.resizedFrame(
             initialFrame: initial,
@@ -247,9 +247,10 @@ final class SubtitlePanelGeometryTests: XCTestCase {
             screenFrame: screenFrame
         )
 
-        XCTAssertEqual(final, resized)
         XCTAssertEqual(final.minY, initial.minY)
-        XCTAssertEqual(final.height, initial.height)
+        XCTAssertEqual(final.minX, resized.minX)
+        XCTAssertEqual(final.width, resized.width)
+        XCTAssertEqual(final.height, 120)
     }
 
     func testPreferredHeightFrameClampsToVisibleScreen() {

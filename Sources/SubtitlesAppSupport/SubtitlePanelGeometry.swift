@@ -165,10 +165,14 @@ public enum SubtitlePanelGeometry {
 
     public static func frameByFinishingTransientResize(
         _ frame: CGRect,
-        preferredHeight _: CGFloat,
-        screenFrame _: CGRect
+        preferredHeight: CGFloat,
+        screenFrame: CGRect
     ) -> CGRect {
-        frame
+        frameByApplyingPreferredHeightPreservingBottom(
+            preferredHeight,
+            to: frame,
+            screenFrame: screenFrame
+        )
     }
 
     public static func clampedFrame(_ frame: CGRect, to screenFrame: CGRect) -> CGRect {

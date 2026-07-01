@@ -47,7 +47,9 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
         let frame = Self.defaultFrame()
         panel = SubtitlePanel(
             contentRect: frame,
-            styleMask: [.borderless, .nonactivatingPanel, .resizable, .fullSizeContentView],
+            // Resize is handled by SubtitleOverlayView so AppKit does not expose
+            // system resize strips in the panel's transparent margins.
+            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -75,7 +77,7 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
         toolbarPanel.contentView = toolbarView
         toolbarPanel.isOpaque = false
         toolbarPanel.backgroundColor = .clear
-        toolbarPanel.hasShadow = false
+        toolbarPanel.hasShadow = true
         toolbarPanel.hidesOnDeactivate = false
         toolbarPanel.level = .floating
         toolbarPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
@@ -349,7 +351,9 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
         if visible {
             positionToolbar()
             toolbarPanel.alphaValue = animated ? 0 : 1
+            toolbarPanel.hasShadow = true
             toolbarPanel.orderFrontRegardless()
+            invalidateToolbarPanelShadow(afterAnimation: animated)
         }
 
         NSAnimationContext.runAnimationGroup { context in
@@ -360,6 +364,7 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
                 return
             }
             self.toolbarPanel.orderOut(nil)
+            self.toolbarPanel.hasShadow = false
         }
     }
 
@@ -423,7 +428,7 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
         let maximumY = screenFrame.maxY - height - 8
 
         let desiredX = containerFrame.midX - width / 2
-        let desiredY = containerFrame.maxY + 8
+        let desiredY = containerFrame.maxY + 8 - SubtitleToolbarView.glassRenderPadding
         let x = min(max(desiredX, minimumX), max(minimumX, maximumX))
         let y = min(max(desiredY, minimumY), max(minimumY, maximumY))
 
@@ -431,6 +436,7 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
             NSRect(x: x, y: y, width: width, height: height),
             display: true
         )
+        toolbarPanel.invalidateShadow()
     }
 
     private func applyPreferredPanelHeightIfNeeded(display: Bool) {
@@ -459,6 +465,25 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
         }
 
         panel.setFrame(nextFrame, display: true)
+    }
+
+    private func invalidateToolbarPanelShadow(afterAnimation: Bool = false) {
+        if toolbarPanel.hasShadow {
+            toolbarPanel.invalidateShadow()
+        }
+
+        guard afterAnimation else {
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { [weak self] in
+            guard let self else {
+                return
+            }
+            if self.toolbarPanel.hasShadow {
+                self.toolbarPanel.invalidateShadow()
+            }
+        }
     }
 
     private func frameByApplyingPreferredPanelHeight(to frame: NSRect, screenFrame: NSRect) -> NSRect {

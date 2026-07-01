@@ -14,8 +14,8 @@ protocol SubtitleOverlayViewDelegate: AnyObject {
 
 final class SubtitleOverlayView: NSView {
     private static let fileNameFont = NSFont.systemFont(ofSize: 12, weight: .medium)
-    private static let fileNameHorizontalInset: CGFloat = 52
-    private static let fileNameBottomInset: CGFloat = 28
+    private static let fileNameHorizontalInsetInsideContainer: CGFloat = 40
+    private static let fileNameBottomInsetInsideContainer: CGFloat = 16
     private static let fileNameSubtitleGap: CGFloat = 12
 
     private enum TrackingRole: String {
@@ -264,24 +264,24 @@ final class SubtitleOverlayView: NSView {
         self.subtitleFileNameGapConstraint = subtitleFileNameGapConstraint
 
         NSLayoutConstraint.activate([
-            containerChromeView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: SubtitlePanelGeometry.chromeInset),
-            containerChromeView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -SubtitlePanelGeometry.chromeInset),
-            containerChromeView.topAnchor.constraint(equalTo: topAnchor, constant: SubtitlePanelGeometry.chromeInset),
-            containerChromeView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -SubtitlePanelGeometry.chromeInset),
+            containerChromeView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: chromeRenderInset),
+            containerChromeView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -chromeRenderInset),
+            containerChromeView.topAnchor.constraint(equalTo: topAnchor, constant: chromeRenderInset),
+            containerChromeView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -chromeRenderInset),
 
-            resizeHandleCueView.leadingAnchor.constraint(equalTo: containerChromeView.leadingAnchor),
-            resizeHandleCueView.trailingAnchor.constraint(equalTo: containerChromeView.trailingAnchor),
-            resizeHandleCueView.topAnchor.constraint(equalTo: containerChromeView.topAnchor),
-            resizeHandleCueView.bottomAnchor.constraint(equalTo: containerChromeView.bottomAnchor),
+            resizeHandleCueView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: SubtitlePanelGeometry.chromeInset),
+            resizeHandleCueView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -SubtitlePanelGeometry.chromeInset),
+            resizeHandleCueView.topAnchor.constraint(equalTo: topAnchor, constant: SubtitlePanelGeometry.chromeInset),
+            resizeHandleCueView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -SubtitlePanelGeometry.chromeInset),
 
             subtitleBackdropView.centerXAnchor.constraint(equalTo: centerXAnchor),
             subtitleBackdropView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -6),
             subtitleBackdropView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 24),
             subtitleBackdropView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
 
-            fileNameLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.fileNameHorizontalInset),
-            fileNameLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.fileNameHorizontalInset),
-            fileNameLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.fileNameBottomInset),
+            fileNameLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: fileNameHorizontalInset),
+            fileNameLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -fileNameHorizontalInset),
+            fileNameLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -fileNameBottomInset),
 
             subtitleLabel.leadingAnchor.constraint(equalTo: subtitleBackdropView.leadingAnchor, constant: 16),
             subtitleLabel.trailingAnchor.constraint(equalTo: subtitleBackdropView.trailingAnchor, constant: -16),
@@ -434,7 +434,7 @@ final class SubtitleOverlayView: NSView {
         let fileNameHeight = measuredLoadedFileNameHeight(forPanelWidth: width)
         let labelVerticalPadding: CGFloat = 16
         let fileNameVerticalSpace = fileNameHeight > 0 ? fileNameHeight + Self.fileNameSubtitleGap : 0
-        let containerVerticalPadding: CGFloat = 56
+        let containerVerticalPadding: CGFloat = 32 + 2 * SubtitlePanelGeometry.chromeInset
         return ceil(textHeight + labelVerticalPadding + containerVerticalPadding)
             + ceil(fileNameVerticalSpace)
     }
@@ -453,6 +453,18 @@ final class SubtitleOverlayView: NSView {
 
     private func containerRect() -> NSRect {
         SubtitlePanelGeometry.containerRect(in: bounds)
+    }
+
+    private var chromeRenderInset: CGFloat {
+        max(0, SubtitlePanelGeometry.chromeInset - SubtitlePanelGeometry.chromeRenderMargin)
+    }
+
+    private var fileNameHorizontalInset: CGFloat {
+        SubtitlePanelGeometry.chromeInset + Self.fileNameHorizontalInsetInsideContainer
+    }
+
+    private var fileNameBottomInset: CGFloat {
+        SubtitlePanelGeometry.chromeInset + Self.fileNameBottomInsetInsideContainer
     }
 
     private func startCaptionAppearanceMonitoring() {
@@ -512,7 +524,7 @@ final class SubtitleOverlayView: NSView {
             return 0
         }
 
-        let labelWidth = max(1, width - 2 * Self.fileNameHorizontalInset)
+        let labelWidth = max(1, width - 2 * fileNameHorizontalInset)
         return measuredTextHeight(
             NSAttributedString(string: fileName, attributes: fileNameAttributes()),
             constrainedTo: labelWidth,
@@ -522,7 +534,7 @@ final class SubtitleOverlayView: NSView {
     }
 
     private func updateFileNamePreferredWidth() {
-        fileNameLabel.preferredMaxLayoutWidth = max(1, bounds.width - 2 * Self.fileNameHorizontalInset)
+        fileNameLabel.preferredMaxLayoutWidth = max(1, bounds.width - 2 * fileNameHorizontalInset)
     }
 
     private func fileNameAttributes() -> [NSAttributedString.Key: Any] {
@@ -597,7 +609,7 @@ private struct SubtitleContainerChromeContentView: View {
                     .regular.interactive(),
                     in: RoundedRectangle(cornerRadius: 22, style: .continuous)
                 )
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .padding(SubtitlePanelGeometry.chromeRenderMargin)
         }
         .environment(\.controlActiveState, .active)
     }

@@ -10,6 +10,8 @@ protocol SubtitleToolbarViewDelegate: AnyObject {
 }
 
 final class SubtitleToolbarView: NSView {
+    static let glassRenderPadding: CGFloat = 8
+
     weak var delegate: SubtitleToolbarViewDelegate?
 
     private let model = SubtitleToolbarModel()
@@ -18,7 +20,8 @@ final class SubtitleToolbarView: NSView {
 
     override var intrinsicContentSize: NSSize {
         guard let hostingView else {
-            return NSSize(width: 280, height: 38)
+            let padding = Self.glassRenderPadding * 2
+            return NSSize(width: 280 + padding, height: 38 + padding)
         }
         return hostingView.fittingSize
     }
@@ -111,6 +114,7 @@ private final class SubtitleToolbarModel: ObservableObject {
     @Published var playbackTime: TimeInterval = 0
     @Published var offset: TimeInterval = 0
     @Published var sourceLabel = "Manual"
+    @Published var syncTarget: SubtitleToolbarSyncTarget = .appleTV
 
     var adjustOffset: ((TimeInterval) -> Void)?
     var requestAppleTVCalibration: (() -> Void)?
@@ -125,6 +129,21 @@ private final class SubtitleToolbarModel: ObservableObject {
 
     var offsetText: String {
         formatOffset(offset)
+    }
+
+    var syncTargetHelp: String {
+        "Select sync target"
+    }
+
+    var syncActionHelp: String {
+        "Sync with \(syncTarget.displayName)"
+    }
+
+    func requestCurrentTargetSync() {
+        switch syncTarget {
+        case .appleTV:
+            requestAppleTVCalibration?()
+        }
     }
 
     private func formatTime(_ time: TimeInterval) -> String {
@@ -189,11 +208,33 @@ private enum SubtitleToolbarStatusKind {
     }
 }
 
+private enum SubtitleToolbarSyncTarget: CaseIterable, Hashable, Identifiable {
+    case appleTV
+
+    var id: Self { self }
+
+    var displayName: String {
+        switch self {
+        case .appleTV:
+            return "Apple TV"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .appleTV:
+            return "appletv.fill"
+        }
+    }
+}
+
 private struct SubtitleToolbarContentView: View {
     private static let bubbleHeight: CGFloat = 44
-    private static let syncBubbleWidth: CGFloat = 76
+    private static let syncActionWidth: CGFloat = 44
+    private static let syncTargetWidth: CGFloat = 56
 
     @ObservedObject var model: SubtitleToolbarModel
+    @State private var isSyncActionHovered = false
 
     var body: some View {
         GlassEffectContainer {
@@ -208,6 +249,7 @@ private struct SubtitleToolbarContentView: View {
                     .layoutPriority(1)
             }
         }
+        .padding(SubtitleToolbarView.glassRenderPadding)
         .fixedSize(horizontal: true, vertical: true)
         .environment(\.controlActiveState, .active)
     }
@@ -215,40 +257,76 @@ private struct SubtitleToolbarContentView: View {
     private var syncControl: some View {
         HStack(spacing: 0) {
             Button {
-                model.requestAppleTVCalibration?()
+                model.requestCurrentTargetSync()
             } label: {
                 Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 42, height: Self.bubbleHeight)
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: Self.syncActionWidth, height: Self.bubbleHeight)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
-            .help("Sync with Apple TV")
-            .accessibilityLabel(Text("Sync with Apple TV"))
+            .buttonStyle(SplitPillActionButtonStyle(isHovered: isSyncActionHovered))
+            .onHover { isSyncActionHovered = $0 }
+            .help(model.syncActionHelp)
+            .accessibilityLabel(Text(model.syncActionHelp))
 
             Divider()
                 .frame(height: 22)
 
             Menu {
-                Button {
-                    model.requestAppleTVCalibration?()
-                } label: {
-                    Label("Apple TV", systemImage: "appletv.fill")
+                Picker("Sync Target", selection: $model.syncTarget) {
+                    ForEach(SubtitleToolbarSyncTarget.allCases) { target in
+                        Label(target.displayName, systemImage: target.symbolName)
+                            .tag(target)
+                    }
                 }
+                .pickerStyle(.inline)
             } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .frame(width: 32, height: Self.bubbleHeight)
+                HStack(spacing: 6) {
+                    Image(systemName: model.syncTarget.symbolName)
+                        .font(.system(size: 14, weight: .semibold))
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(width: Self.syncTargetWidth, height: Self.bubbleHeight)
+                .contentShape(Rectangle())
             }
             .menuStyle(.button)
-            .buttonStyle(.plain)
             .menuIndicator(.hidden)
-            .contentShape(Rectangle())
-            .help("Choose sync target")
-            .accessibilityLabel(Text("Choose sync target"))
+            .buttonStyle(.plain)
+            .help(model.syncTargetHelp)
+            .accessibilityLabel(Text("Sync target"))
+            .accessibilityValue(Text(model.syncTarget.displayName))
         }
-        .frame(width: Self.syncBubbleWidth, height: Self.bubbleHeight)
+        .frame(height: Self.bubbleHeight)
         .glassEffect(.regular.interactive(), in: Capsule())
+    }
+
+    private struct SplitPillActionButtonStyle: ButtonStyle {
+        private static let highlightSize: CGFloat = 32
+
+        let isHovered: Bool
+
+        func makeBody(configuration: Configuration) -> some View {
+            let fillOpacity = configuration.isPressed ? 0.18 : isHovered ? 0.12 : 0
+            let strokeOpacity = configuration.isPressed ? 0.22 : isHovered ? 0.16 : 0
+
+            return configuration.label
+                .background {
+                    Circle()
+                        .fill(.primary.opacity(fillOpacity))
+                        .frame(width: Self.highlightSize, height: Self.highlightSize)
+                }
+                .overlay {
+                    Circle()
+                        .stroke(.primary.opacity(strokeOpacity), lineWidth: 0.75)
+                        .frame(width: Self.highlightSize, height: Self.highlightSize)
+                }
+                .scaleEffect(configuration.isPressed ? 0.98 : 1)
+                .animation(.easeOut(duration: 0.12), value: isHovered)
+                .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+        }
     }
 
     private var statusView: some View {
@@ -270,32 +348,21 @@ private struct SubtitleToolbarContentView: View {
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
 
-            VStack(spacing: 2) {
-                stepperButton(
-                    systemName: "chevron.up",
-                    help: "Increase subtitle offset by 0.5 seconds"
-                ) {
+            Stepper(
+                "Subtitle offset",
+                onIncrement: {
                     model.adjustOffset?(0.5)
-                }
-                stepperButton(
-                    systemName: "chevron.down",
-                    help: "Decrease subtitle offset by 0.5 seconds"
-                ) {
+                },
+                onDecrement: {
                     model.adjustOffset?(-0.5)
                 }
-            }
+            )
+            .labelsHidden()
+            .controlSize(.mini)
+            .fixedSize()
+            .help("Adjust subtitle offset by 0.5 seconds")
+            .accessibilityLabel(Text("Adjust subtitle offset"))
+            .accessibilityValue(Text(model.offsetText))
         }
-    }
-
-    private func stepperButton(systemName: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 8, weight: .bold))
-                .frame(width: 18, height: 8)
-        }
-        .buttonStyle(.glass)
-        .controlSize(.mini)
-        .help(help)
-        .accessibilityLabel(Text(help))
     }
 }

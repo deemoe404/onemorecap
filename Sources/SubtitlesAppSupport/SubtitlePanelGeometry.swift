@@ -14,7 +14,8 @@ public enum SubtitlePanelGeometry {
         public static let bottom = ResizeEdges(rawValue: 1 << 3)
     }
 
-    public static let chromeInset: CGFloat = 12
+    public static let chromeInset: CGFloat = 32
+    public static let chromeRenderMargin: CGFloat = 20
     public static let resizeEdgeThickness: CGFloat = 28
     public static let minimumWidth: CGFloat = 420
     public static let maximumWidth: CGFloat = 1400
@@ -23,6 +24,18 @@ public enum SubtitlePanelGeometry {
     public static func containerRect(in bounds: CGRect) -> CGRect {
         let inset = min(chromeInset, bounds.width / 2, bounds.height / 2)
         return bounds.insetBy(dx: inset, dy: inset)
+    }
+
+    public static func chromeRenderRect(in bounds: CGRect) -> CGRect {
+        let container = containerRect(in: bounds)
+        let margin = min(
+            chromeRenderMargin,
+            container.minX - bounds.minX,
+            bounds.maxX - container.maxX,
+            container.minY - bounds.minY,
+            bounds.maxY - container.maxY
+        )
+        return container.insetBy(dx: -margin, dy: -margin)
     }
 
     public static func resizeEdges(

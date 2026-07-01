@@ -8,6 +8,12 @@ final class SubtitlePanelGeometryTests: XCTestCase {
     func testContainerRectUsesStableInset() {
         let rect = SubtitlePanelGeometry.containerRect(in: CGRect(x: 0, y: 0, width: 900, height: 160))
 
+        XCTAssertEqual(rect, CGRect(x: 32, y: 32, width: 836, height: 96))
+    }
+
+    func testChromeRenderRectExpandsAroundContainerWithoutLeavingBounds() {
+        let rect = SubtitlePanelGeometry.chromeRenderRect(in: CGRect(x: 0, y: 0, width: 900, height: 160))
+
         XCTAssertEqual(rect, CGRect(x: 12, y: 12, width: 876, height: 136))
     }
 

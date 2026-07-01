@@ -9,7 +9,6 @@ protocol SubtitleOverlayViewDelegate: AnyObject {
     func subtitleOverlayViewDidUpdatePreferredHeight(_ view: SubtitleOverlayView)
     func subtitleOverlayView(_ view: SubtitleOverlayView, didRequestContainerResize edges: SubtitlePanelGeometry.ResizeEdges, initialMouseLocation: NSPoint)
     func subtitleOverlayView(_ view: SubtitleOverlayView, didRequestContainerMoveWith event: NSEvent)
-    func subtitleOverlayView(_ view: SubtitleOverlayView, didRequestLoadURL url: URL)
 }
 
 final class SubtitleOverlayView: NSView {
@@ -154,18 +153,6 @@ final class SubtitleOverlayView: NSView {
         delegate?.subtitleOverlayView(self, didRequestContainerMoveWith: event)
     }
 
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        firstSupportedURL(from: sender.draggingPasteboard) == nil ? [] : .copy
-    }
-
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let url = firstSupportedURL(from: sender.draggingPasteboard) else {
-            return false
-        }
-        delegate?.subtitleOverlayView(self, didRequestLoadURL: url)
-        return true
-    }
-
     func setCaptionReportingEnabled(_ enabled: Bool) {
         isReportingCaptions = enabled
         reportDisplayedCaptions(force: true)
@@ -214,7 +201,6 @@ final class SubtitleOverlayView: NSView {
         layer?.backgroundColor = NSColor.clear.cgColor
         layer?.cornerRadius = 8
         layer?.borderWidth = 0
-        registerForDraggedTypes([.fileURL])
 
         containerChromeView.translatesAutoresizingMaskIntoConstraints = false
         containerChromeView.alphaValue = 0
@@ -313,7 +299,7 @@ final class SubtitleOverlayView: NSView {
             return
         }
 
-        var options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeAlways]
+        var options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeAlways, .enabledDuringMouseDrag]
         if let point = currentMouseLocationInView(), rect.contains(point) {
             options.insert(.assumeInside)
         }
@@ -401,6 +387,10 @@ final class SubtitleOverlayView: NSView {
         }
 
         let windowPoint = window.convertPoint(fromScreen: screenPoint)
+        return containsWindowPointInContainerArea(windowPoint)
+    }
+
+    func containsWindowPointInContainerArea(_ windowPoint: NSPoint) -> Bool {
         let point = convert(windowPoint, from: nil)
         return containerRect().containsPointInclusively(point)
     }
@@ -590,14 +580,6 @@ final class SubtitleOverlayView: NSView {
             return nil
         }
         return subtitleText
-    }
-
-    private func firstSupportedURL(from pasteboard: NSPasteboard) -> URL? {
-        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
-        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL]
-        return urls?.first { url in
-            ["srt", "vtt", "webvtt"].contains(url.pathExtension.lowercased())
-        }
     }
 
 }

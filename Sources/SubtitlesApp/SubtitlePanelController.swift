@@ -10,11 +10,21 @@ protocol SubtitlePanelControllerDelegate: AnyObject {
     func subtitlePanelDidRequestClose(_ panelController: SubtitlePanelController)
 }
 
-final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlayViewDelegate, SubtitleToolbarViewDelegate {
+fileprivate protocol SubtitlePanelDraggingDelegate: AnyObject {
+    func subtitlePanel(_ panel: SubtitlePanel, draggingEntered sender: NSDraggingInfo) -> NSDragOperation
+    func subtitlePanel(_ panel: SubtitlePanel, draggingUpdated sender: NSDraggingInfo) -> NSDragOperation
+    func subtitlePanel(_ panel: SubtitlePanel, performDragOperation sender: NSDraggingInfo) -> Bool
+    func subtitlePanel(_ panel: SubtitlePanel, draggingExited sender: NSDraggingInfo?)
+    func subtitlePanel(_ panel: SubtitlePanel, draggingEnded sender: NSDraggingInfo)
+    func subtitlePanel(_ panel: SubtitlePanel, concludeDragOperation sender: NSDraggingInfo?)
+}
+
+final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlayViewDelegate, SubtitleToolbarViewDelegate, SubtitlePanelDraggingDelegate {
     private enum InteractionState {
         case idle
         case hovering
         case toolbarHover
+        case subtitleFileDragHover
         case moving
         case resizing
 
@@ -22,11 +32,13 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
             switch self {
             case .moving, .resizing:
                 return true
-            case .idle, .hovering, .toolbarHover:
+            case .idle, .hovering, .toolbarHover, .subtitleFileDragHover:
                 return false
             }
         }
     }
+
+    private static let supportedSubtitleFileExtensions: Set<String> = ["srt", "vtt", "webvtt"]
 
     weak var delegate: SubtitlePanelControllerDelegate?
 
@@ -85,6 +97,8 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
+        panel.subtitleDraggingDelegate = self
+        panel.registerForDraggedTypes([.fileURL])
 
         toolbarPanel.contentView = toolbarView
         toolbarPanel.isOpaque = false
@@ -193,6 +207,9 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
         guard !interactionState.isTransient else {
             return
         }
+        guard interactionState != .subtitleFileDragHover else {
+            return
+        }
         scheduleChromeHideIfNeeded()
     }
 
@@ -216,8 +233,40 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
         performContainerMove(with: event)
     }
 
-    func subtitleOverlayView(_ view: SubtitleOverlayView, didRequestLoadURL url: URL) {
+    func subtitlePanel(_ panel: SubtitlePanel, draggingEntered sender: NSDraggingInfo) -> NSDragOperation {
+        dragOperation(for: sender)
+    }
+
+    func subtitlePanel(_ panel: SubtitlePanel, draggingUpdated sender: NSDraggingInfo) -> NSDragOperation {
+        dragOperation(for: sender)
+    }
+
+    func subtitlePanel(_ panel: SubtitlePanel, performDragOperation sender: NSDraggingInfo) -> Bool {
+        defer {
+            finishSubtitleFileDrag()
+        }
+
+        guard
+            overlayView.containsWindowPointInContainerArea(sender.draggingLocation),
+            let url = Self.firstSupportedSubtitleURL(from: sender.draggingPasteboard)
+        else {
+            return false
+        }
+
         delegate?.subtitlePanel(self, didRequestLoadURL: url)
+        return true
+    }
+
+    func subtitlePanel(_ panel: SubtitlePanel, draggingExited sender: NSDraggingInfo?) {
+        finishSubtitleFileDrag()
+    }
+
+    func subtitlePanel(_ panel: SubtitlePanel, draggingEnded sender: NSDraggingInfo) {
+        finishSubtitleFileDrag()
+    }
+
+    func subtitlePanel(_ panel: SubtitlePanel, concludeDragOperation sender: NSDraggingInfo?) {
+        finishSubtitleFileDrag()
     }
 
     func subtitleToolbarViewDidEnter(_ view: SubtitleToolbarView) {
@@ -400,6 +449,40 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
         interactionState = .idle
         setToolbarVisible(false, animated: animated)
         setContainerChromeVisible(false, animated: animated)
+    }
+
+    private func dragOperation(for sender: NSDraggingInfo) -> NSDragOperation {
+        guard Self.firstSupportedSubtitleURL(from: sender.draggingPasteboard) != nil else {
+            updateSubtitleFileDragHover(isInsideContainer: false)
+            return []
+        }
+
+        let isInsideContainer = overlayView.containsWindowPointInContainerArea(sender.draggingLocation)
+        updateSubtitleFileDragHover(isInsideContainer: isInsideContainer)
+        return isInsideContainer ? .copy : []
+    }
+
+    private func updateSubtitleFileDragHover(isInsideContainer: Bool) {
+        guard !interactionState.isTransient else {
+            return
+        }
+
+        if isInsideContainer {
+            interactionState = .subtitleFileDragHover
+            showInteractiveChrome(includeToolbar: true, animated: true)
+        } else if interactionState == .subtitleFileDragHover {
+            interactionState = .idle
+            scheduleChromeHideIfNeeded()
+        }
+    }
+
+    private func finishSubtitleFileDrag() {
+        guard interactionState == .subtitleFileDragHover else {
+            return
+        }
+
+        interactionState = .idle
+        scheduleChromeHideIfNeeded()
     }
 
     private func setContainerChromeVisible(_ visible: Bool, animated: Bool) {
@@ -648,15 +731,49 @@ final class SubtitlePanelController: NSObject, NSWindowDelegate, SubtitleOverlay
         let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
         return SubtitlePanelGeometry.defaultFrame(in: screenFrame)
     }
+
+    private static func firstSupportedSubtitleURL(from pasteboard: NSPasteboard) -> URL? {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL]
+        return urls?.first { url in
+            supportedSubtitleFileExtensions.contains(url.pathExtension.lowercased())
+        }
+    }
 }
 
 final class SubtitlePanel: NSPanel {
+    fileprivate weak var subtitleDraggingDelegate: SubtitlePanelDraggingDelegate?
+
     override var canBecomeKey: Bool {
         true
     }
 
     override var canBecomeMain: Bool {
         false
+    }
+
+    @objc func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        subtitleDraggingDelegate?.subtitlePanel(self, draggingEntered: sender) ?? []
+    }
+
+    @objc func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        subtitleDraggingDelegate?.subtitlePanel(self, draggingUpdated: sender) ?? []
+    }
+
+    @objc func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        subtitleDraggingDelegate?.subtitlePanel(self, performDragOperation: sender) ?? false
+    }
+
+    @objc func draggingExited(_ sender: NSDraggingInfo?) {
+        subtitleDraggingDelegate?.subtitlePanel(self, draggingExited: sender)
+    }
+
+    @objc func draggingEnded(_ sender: NSDraggingInfo) {
+        subtitleDraggingDelegate?.subtitlePanel(self, draggingEnded: sender)
+    }
+
+    @objc func concludeDragOperation(_ sender: NSDraggingInfo?) {
+        subtitleDraggingDelegate?.subtitlePanel(self, concludeDragOperation: sender)
     }
 }
 

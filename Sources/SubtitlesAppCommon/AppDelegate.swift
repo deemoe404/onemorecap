@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Subtit
     private static let boundaryEpsilon: TimeInterval = 0.001
     private static let minimumPlaybackDisplayDelay: TimeInterval = 0.01
     private static let statusItemIconPointSize = NSSize(width: 18, height: 18)
+    private static let automationPermissionKnownGrantedDefaultsKey = "automationPermissionKnownGranted"
 
     private struct PanelPlaybackDisplayState: Equatable {
         let isPlaying: Bool
@@ -47,6 +48,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Subtit
             automationGranted: false,
             accessibilityGranted: false
         )
+    }
+
+    private enum AutomationPermissionProbeResult {
+        case granted
+        case denied
+        case unavailable
     }
 
     private struct MenuDisplayState: Equatable {
@@ -111,6 +118,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Subtit
         showsAccessibilitySettings = configuration.showsAccessibilitySettings
         showsUpdateMenu = configuration.showsUpdateMenu
         super.init()
+        permissionGrantState = PermissionGrantState(
+            automationGranted: UserDefaults.standard.bool(forKey: Self.automationPermissionKnownGrantedDefaultsKey),
+            accessibilityGranted: false
+        )
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -547,10 +558,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Subtit
         let shouldCheckAutomation = showsAutomationSettings
         let shouldCheckAccessibility = showsAccessibilitySettings
         let accessibilityPermissionGranted = accessibilityPermissionGranted
+        let previousAutomationGranted = permissionGrantState.automationGranted
 
         permissionGrantQueue.async { [weak self] in
+            let automationGranted = switch shouldCheckAutomation ? Self.automationPermissionProbeResult() : .denied {
+            case .granted:
+                true
+            case .denied:
+                false
+            case .unavailable:
+                previousAutomationGranted
+            }
+            Self.cacheKnownAutomationPermissionGranted(automationGranted)
+
             let nextState = PermissionGrantState(
-                automationGranted: shouldCheckAutomation ? Self.automationPermissionGranted() : false,
+                automationGranted: automationGranted,
                 accessibilityGranted: shouldCheckAccessibility ? accessibilityPermissionGranted() : false
             )
 
@@ -565,7 +587,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Subtit
         }
     }
 
-    private static func automationPermissionGranted() -> Bool {
+    private static func automationPermissionProbeResult() -> AutomationPermissionProbeResult {
         var target = AEAddressDesc()
         let bundleIdentifier = QuickTimePlaybackClient.bundleIdentifier
         let createStatus = bundleIdentifier.withCString { pointer in
@@ -577,18 +599,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Subtit
             )
         }
         guard createStatus == noErr else {
-            return false
+            return .unavailable
         }
         defer {
             AEDisposeDesc(&target)
         }
 
-        return AEDeterminePermissionToAutomateTarget(
+        let status = AEDeterminePermissionToAutomateTarget(
             &target,
             AEEventClass(typeWildCard),
             AEEventID(typeWildCard),
             false
-        ) == noErr
+        )
+        if status == noErr {
+            return .granted
+        }
+        if status == OSStatus(errAEEventNotPermitted)
+            || status == OSStatus(errAEEventWouldRequireUserConsent) {
+            return .denied
+        }
+        if status == OSStatus(procNotFound) {
+            return .unavailable
+        }
+        return .denied
+    }
+
+    private static func cacheKnownAutomationPermissionGranted(_ isGranted: Bool) {
+        UserDefaults.standard.set(isGranted, forKey: automationPermissionKnownGrantedDefaultsKey)
+    }
+
+    private func setKnownAutomationPermissionGranted(_ isGranted: Bool) {
+        Self.cacheKnownAutomationPermissionGranted(isGranted)
+        guard showsAutomationSettings, permissionGrantState.automationGranted != isGranted else {
+            return
+        }
+
+        permissionGrantState = PermissionGrantState(
+            automationGranted: isGranted,
+            accessibilityGranted: permissionGrantState.accessibilityGranted
+        )
+        updateMenuState()
     }
 
     func subtitlePanel(_ panelController: SubtitlePanelController, didAdjustOffsetBy delta: TimeInterval) {
@@ -606,6 +656,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Subtit
 
         switch client.currentSnapshot() {
         case let .success(snapshot):
+            if client.target.id == ExternalPlaybackTarget.quickTime.id {
+                setKnownAutomationPermissionGranted(true)
+            }
             clock.pause()
             clock.seek(to: snapshot.position)
             if snapshot.state.isActivelyAdvancing {
@@ -615,6 +668,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Subtit
             refreshSubtitleText()
 
         case let .failure(error):
+            if case .automationPermissionDenied = error {
+                setKnownAutomationPermissionGranted(false)
+            }
             presentPlaybackSyncError(
                 messageText: "Could not sync \(client.target.displayName)",
                 informativeText: error.localizedDescription
